@@ -1,0 +1,12 @@
+version: '3.9'
+
+services:
+  cylimit-ui:
+    # image: cylmitfrontend:latest
+    image: 250828633224.dkr.ecr.ap-southeast-1.amazonaws.com/cylimit-ui:dev
+    container_name: "cylimit-ui"
+    env_file:
+      - ./.env
+    restart: on-failure
+    ports:
+      - 3000:3000

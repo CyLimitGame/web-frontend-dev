@@ -1,0 +1,20 @@
+steps:
+  - commands:
+    - "npm i -g vercel"
+    - "vercel --token M8bxTpplN8DX6CaoiRMZJejV"
+    plugins:
+      # Resolves to https://github.com/buildkite-plugins/docker-buildkite-plugin
+      - docker#v3.3.0:
+          image: node:14.20.0-alpine3.15
+          workdir: /app
+    branches: "develop"
+
+  - commands:
+    - "npm i -g vercel"
+    - "vercel --token M8bxTpplN8DX6CaoiRMZJejV --prod"
+    plugins:
+      # Resolves to https://github.com/buildkite-plugins/docker-buildkite-plugin
+      - docker#v3.3.0:
+          image: node:14.20.0-alpine3.15
+          workdir: /app
+    branches: "rc/*"

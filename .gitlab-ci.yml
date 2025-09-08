@@ -1,0 +1,119 @@
+image: docker:20
+
+services:
+  - docker:dind
+
+stages:
+  - build
+  - push
+  - deploy
+
+variables:
+  AWS_REGISTRY: "250828633224.dkr.ecr.ap-southeast-1.amazonaws.com"
+  AWS_REGISTRY_IMAGE: "cylimit-ui"
+  TAG_LATEST: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:latest
+  TAG_DEV: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:dev
+  TAG_STAG: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:staging
+  TAG_DEV_COMMIT: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA-dev
+  TAG_PROD_COMMIT: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:$CI_COMMIT_SHORT_SHA
+  TAG_REF_NAME: $AWS_REGISTRY/$AWS_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+
+before_script:
+  - apk add --update python3
+  - python3 -m venv venv
+  - source venv/bin/activate
+  - pip install --upgrade pip
+  - pip install awscli
+  - aws configure set aws_access_key_id $AWS_ACCESS_KEY_ID
+  - aws configure set aws_secret_access_key $AWS_SECRET_ACCESS_KEY
+  - aws configure set default.region $AWS_DEFAULT_REGION
+  - $(aws ecr get-login --no-include-email)
+
+build_and_push_dev:
+  stage: build
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}
+    paths:
+      - node_modules/
+  script:
+    - docker build --build-arg NEXT_FILE_ENV=development --pull --tag $TAG_DEV_COMMIT --tag $TAG_DEV .
+    - docker push --all-tags $AWS_REGISTRY/$AWS_REGISTRY_IMAGE
+  only:
+    - develop
+
+deploy_dev:
+  stage: deploy
+  before_script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
+    - mkdir -p ~/.ssh
+    - ssh-keyscan 52.221.20.173 > ~/.ssh/known_hosts
+  script:
+    - ssh ubuntu@52.221.20.173 "cd /home/ubuntu/cylimit-frontend && bash ./scripts/up-dev.sh && exit"
+  only:
+    - develop
+
+build_and_push_prod:
+  stage: build
+  script:
+    - docker build --build-arg NEXT_FILE_ENV=production --pull --tag $TAG_PROD_COMMIT --tag $TAG_LATEST .
+    - docker push $TAG_PROD_COMMIT
+    - docker push $TAG_LATEST
+  only:
+    # We want this job to be run on tags only.
+    - master
+
+.push_dev:
+  variables:
+    # Again, we do not need the source code here. Just playing with Docker.
+    GIT_STRATEGY: none
+  stage: push
+  script:
+    - docker pull $TAG_DEV_COMMIT
+    - docker tag $TAG_DEV_COMMIT $TAG_DEV
+    - docker tag $TAG_DEV_COMMIT $TAG_STAG
+    - docker push $TAG_DEV
+    - docker push $TAG_STAG
+  only:
+    # We want this job to be run on tags only.
+    - develop
+
+push_tag:
+  variables:
+    # Again, we do not need the source code here. Just playing with Docker.
+    GIT_STRATEGY: none
+  stage: push
+  script:
+    - docker pull $TAG_PROD_COMMIT
+    - docker tag $TAG_PROD_COMMIT $TAG_REF_NAME
+    - docker push $TAG_REF_NAME
+  only:
+    # We want this job to be run on tags only.
+    - tags
+
+.push_latest:
+  variables:
+    # Again, we do not need the source code here. Just playing with Docker.
+    GIT_STRATEGY: none
+  stage: push
+  script:
+    - docker pull $TAG_PROD_COMMIT
+    - docker tag $TAG_PROD_COMMIT $TAG_LATEST
+    - docker push $TAG_LATEST
+  only:
+    # We want this job to be run on tags only.
+    - master
+
+deploy_prod:
+  stage: deploy
+  before_script:
+    - 'which ssh-agent || ( apt-get update -y && apt-get install openssh-client -y )'
+    - eval $(ssh-agent -s)
+    - echo "${SSH_PRIVATE_KEY}" | tr -d '\r' | ssh-add - > /dev/null
+    - mkdir -p ~/.ssh
+    - ssh-keyscan 52.47.136.154 > ~/.ssh/known_hosts
+  script:
+    - ssh ubuntu@52.47.136.154 "cd /home/ubuntu/cylimit-frontend && bash ./scripts/up-prod.sh && exit"
+  only:
+    - master
